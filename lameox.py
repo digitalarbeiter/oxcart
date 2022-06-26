@@ -19,4 +19,7 @@ if __name__ == "__main__":
         print(cf.cyan(f"all {type_}s:"))
         for folder in all_folders:
             print(cf.green(folder["title"]), json.dumps(folder, indent=4, sort_keys=True))
+
+    for appt in ox.calendar.search(pattern="BSC*"):
+        print(appt) # json.dumps(appt, indent=4, sort_keys=True))
     ox.logout()

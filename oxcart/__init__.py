@@ -1,4 +1,6 @@
 import colorful as cf
+from dataclasses import dataclass
+from datetime import datetime, timezone
 import requests
 import time
 import urllib
@@ -32,6 +34,7 @@ class OX:
         self.session = None
         self._auth_record = None
         self.login(username, password)
+        self.calendar = OxCalendar(self)
         self.folders = OxFolders(self)
 
     def login(self, username, password):
@@ -138,4 +141,55 @@ class OxFolders:
 
     def all_(self, type_):
         resp = self.ox.GET("/folders", params={"action": "allVisible", "columns": "1,2,3,4,100,102", "content_type": type_})
+        return resp
+
+
+@dataclass
+class OxAppointment:
+    id: str
+    title: str
+    start_date: datetime
+    end_date: datetime
+    location: str
+    note: str
+    raw: dict
+
+
+class OxCalendar:
+    def __init__(self, ox):
+        self.ox = ox
+
+    def search(self, *, pattern=None, startletter=None):
+        query = {}
+        if pattern:
+            query["pattern"] = pattern
+        if startletter:
+            query["startletter"] = startletter
+        appointments = self.ox.PUT("/calendar", params={"action": "search", "columns": "1,20"}, data=query)
+        for appt in appointments:
+            yield self.get_(appt[0], appt[1])
+
+    def get_(self, id_, folder):
+        resp = self.ox.GET("/calendar", params={"action": "get", "id": id_, "folder": folder})
+        appt = OxAppointment(
+            id=resp["id"],
+            title=resp["title"],
+            start_date=datetime.fromtimestamp(resp["start_date"]/1000, tz=timezone.utc),
+            end_date=datetime.fromtimestamp(resp["end_date"]/1000, tz=timezone.utc),
+            location=resp.get("location", None),
+            note=resp.get("note", None),
+            raw=resp,
+        )
+        return appt
+
+    def all_(self, start, end):
+        start = start.strftime("%s")
+        end = end.strftime("%s")
+        resp = self.ox.GET("/calendar", params={"action": "all", "columns": "1,2,3,4,100,102", "start": start, "end": end})
+        print(resp)
+        return resp
+
+    def list_(self):
+        resp = self.ox.PUT("/calendar", params={"action": "list", "columns": "1,2,3,4,100,102"}, data={})
+        print(resp)
         return resp
