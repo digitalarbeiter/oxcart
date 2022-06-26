@@ -78,12 +78,12 @@ class OX:
         return self._request("POST", url, params=params, data=data)
 
     def PUT(self, url, *, params, data):
-        return self._request("PUT", url, params=params, data=data)
+        return self._request("PUT", url, params=params, json=data)
 
-    def GET(self, url, *, params=None):
-        return self._request("GET", url, params=params, data=None)
+    def GET(self, url, *, params):
+        return self._request("GET", url, params=params, json=None)
 
-    def _request(self, method, url, *, params=None, data=None):
+    def _request(self, method, url, *, params=None, data=None, json=None):
         if not params:
             params = {}
         if self._auth_record:
@@ -95,7 +95,12 @@ class OX:
             print(f"{cf.cyan(method)} {cf.blue(url)} {data}")  # COOKIES: {self.session.cookies}
         resp = None
         while not resp:
-            resp = self.session.request(method, url, data=data)
+            if data:
+                resp = self.session.request(method, url, data=data)
+            elif json:
+                resp = self.session.request(method, url, json=json)
+            else:
+                resp = self.session.request(method, url)
             if resp.status_code != 200:
                 print(f"HTTP {method} {url} data={data}", cf.red(resp.content))
                 resp.raise_for_status()
