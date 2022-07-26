@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import IntEnum
 import requests
+import pytz
 import time
 import urllib
 
@@ -253,14 +254,18 @@ class OxAppointment:
     title: str
     start_date: datetime
     end_date: datetime
+    timezone: str
     full_time: bool  # FIXME?
     location: str
     note: str
     recurrence: OxRecurrence
     raw: dict
 
+    def __str__(self):
+        return f"{self.start_date:%Y-%m-%d %H:%M} - {self.end_date:%Y-%m-%d %H:%M}: {self.title}\n{self.location}\n{self.note}\n{self.raw}"
+
     @staticmethod
-    def Once(folder, start_date, end_date, title, note=None, location=None, full_time=False):
+    def Once(*, folder, start_date, end_date, timezone, title, note=None, location=None, full_time=False):
         return OxAppointment(
             id=None,
             folder=folder,
@@ -270,11 +275,12 @@ class OxAppointment:
             full_time=full_time,
             location=location,
             note=note,
+            timezone=timezone,
             recurrance=OxRecurrence.Once(),
         )
 
     @staticmethod
-    def Daily(folder, start_date, end_date, title, note=None, location=None, full_time=False):
+    def Daily(*, folder, start_date, end_date, timezone, title, note=None, location=None, full_time=False):
         return OxAppointment(
             id=None,
             folder=folder,
@@ -284,11 +290,12 @@ class OxAppointment:
             full_time=full_time,
             location=location,
             note=note,
+            timezone=timezone,
             recurrance=OxRecurrence.Daily(),
         )
 
     @staticmethod
-    def Weekly(folder, start_date, end_date, title, note=None, location=None, full_time=False):
+    def Weekly(*, folder, start_date, end_date, timezone, title, note=None, location=None, full_time=False):
         ...
 
     def to_ox(self):
@@ -297,6 +304,7 @@ class OxAppointment:
             "title": self.title,
             "start_date": int(self.start_date.strftime("%s")) * 1000,
             "end_date": int(self.end_date.strftime("%s")) * 1000,
+            "timezone": self.timezone,
         }
         if self.location:
             ox["location"] = self.location
@@ -310,12 +318,24 @@ class OxAppointment:
 
     @staticmethod
     def from_ox(resp):
+        # OX times are weird: the start_date is a timestamp that when converted
+        # to UTC is the start %H:%M but in the given time zone o_O
+        #
+        # Example: in the web interface, create an appointment from 13:00-14:00
+        # local time. For me, that would be CEST = UTC-2h. This appointment will
+        # sync correctly to your phone, reminder will be at 13:00 CEST.
+        # However, the start_date in the OX response is a timestamp for 13:00
+        # *UTC*, times 1000 (so, milliseconds; for whatever reason).
+        timezone = resp["timezone"]
+        start_date = datetime.fromtimestamp(resp["start_date"]/1000, tz=pytz.utc).replace(tzinfo=pytz.timezone(timezone))
+        end_date = datetime.fromtimestamp(resp["end_date"]/1000, tz=pytz.utc).replace(tzinfo=pytz.timezone(timezone))
         return OxAppointment(
             id=resp["id"],
             folder=resp["folder_id"],
             title=resp["title"],
-            start_date=datetime.fromtimestamp(resp["start_date"]/1000, tz=timezone.utc),
-            end_date=datetime.fromtimestamp(resp["end_date"]/1000, tz=timezone.utc),
+            start_date=start_date,
+            end_date=end_date,
+            timezone=timezone,
             location=resp.get("location", None),
             note=resp.get("note", None),
             full_time=resp.get("full_time"),
@@ -334,13 +354,12 @@ class OxCalendar:
         end = int(end.strftime("%s")) * 1000
         appointments = self.ox.GET("/calendar", params={"action": "all", "columns": "1,20", "start": start, "end": end})
         for appt_id, folder_id in appointments:
-            self._folders.add(folder_id)
+            self._folders.add(int(folder_id))
             yield self.get_(appt_id, folder_id)
 
     def list_(self, appts):
         # Like a multi get, but with selective numerical columns
         resp = self.ox.PUT("/calendar", params={"action": "list", "columns": "1,20,200"}, data=appts)
-        print(resp)
         return resp
 
     def search(self, *, pattern: str=None, startletter: str=None):
@@ -352,7 +371,7 @@ class OxCalendar:
             query["startletter"] = startletter
         appointments = self.ox.PUT("/calendar", params={"action": "search", "columns": "1,20"}, data=query)
         for appt_id, folder_id in appointments:
-            self._folders.add(folder_id)
+            self._folders.add(int(folder_id))
             yield self.get_(appt_id, folder_id)
 
     def get_(self, id_, folder):
@@ -368,6 +387,8 @@ class OxCalendar:
         return OxAppointment.from_ox(resp)
 
     def create(self, appointment):
+        for folder in self.ox.folders.all_folders("calendar"):
+            self._folders.add(int(folder["id"]))
         try:
             appointment = appointment.to_ox()
         except AttributeError:
@@ -379,4 +400,4 @@ class OxCalendar:
         resp = self.ox.PUT("/calendar", params={"action": "new"}, data=appointment)
         if "conflicts" in resp:
             raise OXError()  # FIXME don't be so harsh maybe
-        return resp["id"]
+        return self.get_(resp["id"], appointment["folder_id"])

@@ -17,6 +17,10 @@ def date_time(s):
         return datetime.datetime.strptime(s, "%Y-%m-%dT%H:%M")
     except:
         pass
+    try:
+        return datetime.datetime.strptime(s, "%Y-%m-%d %H:%M")
+    except:
+        pass
     return datetime.datetime.strptime(s, "%Y-%m-%d")
 
 
@@ -103,6 +107,7 @@ def create(ctx, title, start, end, location, notes, folder):
     """ Create an appointment.
     """
     ox = ctx.obj["ox"]
+    timezone = open("/etc/timezone").read().strip()
     click.echo(f"add appointment {title}")
     ox.calendar.create(
         oxcart.OxAppointment(
@@ -111,6 +116,7 @@ def create(ctx, title, start, end, location, notes, folder):
             title=title,
             start_date=start,
             end_date=end,
+            timezone=timezone,
             full_time=False,
             location=location,
             note=notes,
