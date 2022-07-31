@@ -5,6 +5,7 @@ import datetime
 import json
 import os
 import re
+import pytz
 
 import oxcart
 
@@ -151,9 +152,10 @@ PARSE_OWA_HEADERS = {
 @click.option("--locale", help="OWA locale (for parsing date/time)", default="de_DE")
 @click.option("--list-locales", help="List supported OWA locales", is_flag=True)
 @click.option("--yes/-y", help="auto-create appointment without confirmation prompt", is_flag=True)
+@click.option("--timezone", help="time zone for appointment date/time (default: system tz)", default=None)
 @click.argument("file", type=click.File())
 @click.pass_context
-def paste_owa(ctx, folder, file, locale, list_locales, yes):
+def paste_owa(ctx, folder, file, locale, list_locales, yes, timezone):
     """ Create an appointment from OWA copy/paste.
 
         To parse the OWA header, the locale is needed to recognize the dates.
@@ -168,7 +170,6 @@ def paste_owa(ctx, folder, file, locale, list_locales, yes):
         return
 
     ox = ctx.obj["ox"]
-    timezone = open("/etc/timezone").read().strip()
     contents = [line for line in file]
     header = contents[0].strip()
     title, start_date, end_date, location = PARSE_OWA_HEADERS[locale](header)
@@ -182,23 +183,33 @@ def paste_owa(ctx, folder, file, locale, list_locales, yes):
         f"{cf.cyan('appointment from OWA copy/paste:')} {title} {cf.cyan('from')} "
         f"{start_date} {cf.cyan('to')} {end_date} {cf.cyan('at')} {location}"
     )
-    click.echo(f"{cf.cyan('notes')}:\n{notes}")
+    if notes:
+        click.echo(f"{cf.cyan('notes')}:\n{notes}")
+    # Time zones with OX are weird. Even when given the time zone for start and
+    # end time, we have to adjust start and end time by the offset of the time
+    # zone against UTC. The OX docs are a bit thin here; I just tinkered with
+    # the OX API until it seemed to work :-/
+    # See section 3. in the docs:
+    # https://documentation.open-xchange.com/components/middleware/http/7.10.1/index.html
+    if not timezone:
+        timezone = open("/etc/timezone").read().strip()
+    tz = pytz.timezone(timezone)
+    time_displacement = pytz.utc.localize(start_date) - tz.localize(start_date)
     if yes or click.prompt(f"{cf.cyan('create appointment? [y/n]')}").lower() == "y":
-        ox.calendar.create(
-            oxcart.OxAppointment(
-                id=None,
-                folder=folder,
-                title=title,
-                start_date=start_date,
-                end_date=end_date,
-                timezone=timezone,
-                full_time=False,
-                location=location,
-                note=notes,
-                recurrence=None,
-                raw=None,
-            )
+        appointment = oxcart.OxAppointment(
+            id=None,
+            folder=folder,
+            title=title,
+            start_date=start_date + time_displacement,
+            end_date=end_date + time_displacement,
+            timezone=timezone,
+            full_time=False,
+            location=location,
+            note=notes,
+            recurrence=None,
+            raw=None,
         )
+        ox.calendar.create(appointment)
         click.echo(f"{cf.green('appointment created.')}")
     else:
         click.echo(f"{cf.yellow('appointment not created.')}")
