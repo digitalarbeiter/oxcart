@@ -262,7 +262,7 @@ class OxAppointment:
     raw: dict
 
     def __str__(self):
-        return f"{self.start_date:%Y-%m-%d %H:%M} - {self.end_date:%Y-%m-%d %H:%M}: {self.title}\n{self.location}\n{self.note}\n{self.raw}"
+        return f"{self.start_date:%Y-%m-%d %H:%M} - {self.end_date:%Y-%m-%d %H:%M} ({timezone}): {self.title}\n{self.location}\n{self.note}\n{self.raw}"
 
     @staticmethod
     def Once(*, folder, start_date, end_date, timezone, title, note=None, location=None, full_time=False):
@@ -399,5 +399,5 @@ class OxCalendar:
         assert appointment["folder_id"] in self._folders
         resp = self.ox.PUT("/calendar", params={"action": "new"}, data=appointment)
         if "conflicts" in resp:
-            raise OXError()  # FIXME don't be so harsh maybe
+            raise OXError(None, None, {}, resp)  # FIXME don't be so harsh maybe
         return self.get_(resp["id"], appointment["folder_id"])
