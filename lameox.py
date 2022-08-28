@@ -179,8 +179,61 @@ def paste_owa(ctx, folder, file, locale, list_locales, yes, timezone):
         notes = "\n".join(line.strip() for line in contents[2:])
     else:
         notes = None
+    create_appointment(ox, yes, folder, title, start_date, end_date, timezone, location, notes)
+
+
+@calendar.command()
+@click.option("--folder", help="calendar folder for the appointment (default: the one calendar, if it exists)", type=int)
+@click.option("--locale", help="OWA locale (for parsing date/time)", default="de_DE")
+@click.option("--list-locales", help="List supported OWA locales", is_flag=True)
+@click.option("--yes/-y", help="auto-create appointment without confirmation prompt", is_flag=True)
+@click.option("--timezone", help="time zone for appointment date/time (default: system tz)", default=None)
+@click.argument("file", type=click.File())
+@click.pass_context
+def paste_office365_de(ctx, folder, file, locale, list_locales, yes, timezone):
+    """ Create an appointment from Office 365 copy/paste.
+
+        To parse the Office 365 header, the locale is needed to recognize the dates.
+
+        German examples:
+
+        Follow-Up: APIv2-Abschaltung
+        Do, 2022-08-25 14:00 – 15:00
+        https://solute.whereby.com/ausu
+
+        Team-Connection
+        Fr, 2022-08-26 13:30 – 14:00
+        Serie
+        https://solute.whereby.com/ausu
+    """
+    SERIES = {
+        "de_DE": "Serie",
+        "en_US": "Series",
+    }
+    ox = ctx.obj["ox"]
+    contents = [line.strip() for line in file]
+    title = contents[0]
+    if locale == "de_DE":
+        _weekday, start_day, start_time, end_time = re.match(
+            r"^(\S+), (\d\d\d\d-\d\d-\d\d) (\d\d:\d\d) – (\d\d:\d\d)$",
+            contents[1],
+        ).groups()
+        start_date = datetime.datetime.strptime(start_day+" "+start_time, "%Y-%m-%d %H:%M")
+        end_date = datetime.datetime.strptime(start_day+" "+end_time, "%Y-%m-%d %H:%M")
+    else:
+        # TODO: more date locales; even the German one is weird...
+        raise ValueError(f"cannot handle dates for locale {locale}")
+    if contents[2] == SERIES[locale]:
+        location = contents[3]
+    else:
+        location = contents[2]
+    notes = None
+    create_appointment(ox, yes, folder, title, start_date, end_date, timezone, location, notes)
+
+
+def create_appointment(ox, yes, folder, title, start_date, end_date, timezone, location, notes):
     click.echo(
-        f"{cf.cyan('appointment from OWA copy/paste:')} {title} {cf.cyan('from')} "
+        f"{cf.cyan('appointment from copy/paste:')} {title} {cf.cyan('from')} "
         f"{start_date} {cf.cyan('to')} {end_date} {cf.cyan('at')} {location}"
     )
     if notes:
